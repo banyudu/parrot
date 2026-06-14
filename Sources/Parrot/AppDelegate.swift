@@ -212,15 +212,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let remainingRaw = String(confirmedRaw.dropFirst(lastPolishBoundary))
-
-        if config.polishEnabled && polisher.state == .ready && !remainingRaw.isEmpty {
-            polisher.polish(remainingRaw) { [weak self] polished in
+        if config.polishEnabled && polisher.state == .ready && !trimmed.isEmpty {
+            polisher.polish(trimmed) { [weak self] polished in
                 guard let self else { return }
-                let finalText = self.polishedPrefix + polished
                 let oldDisplay = self.displayedText
-                PasteService.replaceText(from: oldDisplay, to: finalText)
-                self.displayedText = finalText
+                PasteService.replaceText(from: oldDisplay, to: polished)
+                self.displayedText = polished
                 self.resetTypingState()
                 self.overlay.showDone()
             }
