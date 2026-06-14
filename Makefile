@@ -1,4 +1,4 @@
-.PHONY: build run dev dmg clean
+.PHONY: build run dev dmg install clean
 
 APP_NAME    = Parrot
 BUILD_DIR   = .build/release
@@ -75,6 +75,11 @@ dmg:
 	@hdiutil create -volname "$(APP_NAME)" -srcfolder "$(DIST_DIR)/dmg" -ov -format UDZO "$(DMG_FILE)"
 	@rm -rf "$(DIST_DIR)/dmg" "$(DIST_DIR)/$(APP_NAME).app"
 	@echo "Built $(DMG_FILE)"
+
+install: build
+	@rm -rf /Applications/$(APP_BUNDLE)
+	@cp -R $(APP_BUNDLE) /Applications/$(APP_BUNDLE)
+	@echo "Installed to /Applications/$(APP_BUNDLE)"
 
 clean:
 	swift package clean
