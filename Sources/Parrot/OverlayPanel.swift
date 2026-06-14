@@ -173,7 +173,8 @@ private final class WaveBarView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let level = Double(min(audioLevel / 0.15, 1.0))
+        let raw = Double(min(audioLevel / 0.04, 1.0))
+        let level = sqrt(raw)
         let dynamicMax = kIdleH + CGFloat(level) * (kBarMaxH - kIdleH)
 
         for i in 0..<kBarCount {
