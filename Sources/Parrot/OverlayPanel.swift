@@ -3,6 +3,10 @@ import QuartzCore
 
 private let kPanelH: CGFloat = 34
 private let kPanelW: CGFloat = 120
+private let kTextPanelH: CGFloat = 28
+private let kTextMaxW: CGFloat = 500
+private let kTextPadding: CGFloat = 12
+private let kTextGap: CGFloat = 6
 private let kBarCount = 12
 private let kBarWidth: CGFloat = 3
 private let kBarGap: CGFloat = 3
@@ -17,6 +21,10 @@ final class OverlayPanel {
     private let dotView: DotView
     private var animTimer: Timer?
     private var dismissTimer: Timer?
+
+    private let textPanel: NSPanel
+    private let textContainer: NSView
+    private let textLabel: NSTextField
 
     var audioLevel: Float = 0
 
@@ -63,6 +71,38 @@ final class OverlayPanel {
         ))
         dotView.isHidden = true
         container.addSubview(dotView)
+
+        let screen2 = NSScreen.main?.frame ?? .zero
+        let textY = screen2.height * 0.10 + kPanelH + kTextGap
+        textPanel = NSPanel(
+            contentRect: NSRect(x: 0, y: textY, width: kTextMaxW, height: kTextPanelH),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        textPanel.level = .floating + 1
+        textPanel.isOpaque = false
+        textPanel.hasShadow = true
+        textPanel.backgroundColor = .clear
+        textPanel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        textPanel.ignoresMouseEvents = true
+        textPanel.alphaValue = 0
+
+        textContainer = NSView(frame: NSRect(x: 0, y: 0, width: kTextMaxW, height: kTextPanelH))
+        textContainer.wantsLayer = true
+        textContainer.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.75).cgColor
+        textContainer.layer?.cornerRadius = kTextPanelH / 2
+        textContainer.layer?.masksToBounds = true
+        textPanel.contentView = textContainer
+
+        textLabel = NSTextField(labelWithString: "")
+        textLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        textLabel.textColor = .white
+        textLabel.alignment = .center
+        textLabel.lineBreakMode = .byTruncatingHead
+        textLabel.maximumNumberOfLines = 1
+        textLabel.frame = NSRect(x: kTextPadding, y: 0, width: kTextMaxW - kTextPadding * 2, height: kTextPanelH)
+        textContainer.addSubview(textLabel)
     }
 
     // MARK: - Public
@@ -116,6 +156,37 @@ final class OverlayPanel {
         }
     }
 
+    func updateText(_ confirmed: String, provisional: String) {
+        let full = (confirmed + provisional).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !full.isEmpty else {
+            textPanel.orderOut(nil)
+            textPanel.alphaValue = 0
+            return
+        }
+
+        textLabel.stringValue = full
+
+        let attrStr = NSAttributedString(string: full, attributes: [.font: textLabel.font!])
+        let textWidth = min(attrStr.size().width + kTextPadding * 2 + 4, kTextMaxW)
+        let screen = NSScreen.main?.frame ?? .zero
+        let newX = (screen.width - textWidth) / 2
+        var frame = textPanel.frame
+        frame.origin.x = newX
+        frame.size.width = textWidth
+        textPanel.setFrame(frame, display: false)
+        textContainer.frame = NSRect(x: 0, y: 0, width: textWidth, height: kTextPanelH)
+        textLabel.frame = NSRect(x: kTextPadding, y: 0, width: textWidth - kTextPadding * 2, height: kTextPanelH)
+
+        textPanel.alphaValue = 1
+        textPanel.orderFrontRegardless()
+    }
+
+    func hideText() {
+        textPanel.orderOut(nil)
+        textPanel.alphaValue = 0
+        textLabel.stringValue = ""
+    }
+
     func hide() {
         stopWaveAnimation()
         stopPulse()
@@ -123,6 +194,7 @@ final class OverlayPanel {
         dismissTimer = nil
         panel.orderOut(nil)
         panel.alphaValue = 0
+        hideText()
     }
 
     // MARK: - Internals

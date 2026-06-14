@@ -55,6 +55,41 @@ enum PasteService {
         }
     }
 
+    static func typeText(_ text: String) {
+        guard !text.isEmpty else { return }
+        let src = CGEventSource(stateID: .hidSystemState)
+        for scalar in text.unicodeScalars {
+            let chars = [UniChar(scalar.value)]
+            guard let down = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: false)
+            else { continue }
+            down.keyboardSetUnicodeString(stringLength: 1, unicodeString: chars)
+            up.keyboardSetUnicodeString(stringLength: 1, unicodeString: chars)
+            down.post(tap: .cghidEventTap)
+            up.post(tap: .cghidEventTap)
+        }
+    }
+
+    static func deleteBackward(count: Int) {
+        guard count > 0 else { return }
+        let src = CGEventSource(stateID: .hidSystemState)
+        for _ in 0..<count {
+            guard let down = CGEvent(keyboardEventSource: src, virtualKey: 0x33, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: src, virtualKey: 0x33, keyDown: false)
+            else { continue }
+            down.post(tap: .cghidEventTap)
+            up.post(tap: .cghidEventTap)
+        }
+    }
+
+    static func replaceText(from oldText: String, to newText: String) {
+        let commonLen = zip(oldText, newText).prefix(while: { $0 == $1 }).count
+        let deleteCount = oldText.count - commonLen
+        let appendStr = String(newText.dropFirst(commonLen))
+        deleteBackward(count: deleteCount)
+        typeText(appendStr)
+    }
+
     private static func simulatePaste() {
         let src = CGEventSource(stateID: .hidSystemState)
         guard let down = CGEvent(keyboardEventSource: src, virtualKey: 9, keyDown: true),

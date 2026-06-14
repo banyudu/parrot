@@ -10,7 +10,11 @@ final class ASRBridge {
     var onStateChange: ((State) -> Void)?
 
     private var model: (any STTGenerationModel)?
+    private var qwen3Model: Qwen3ASRModel?
     private let queue = DispatchQueue(label: "com.parrot.asr", qos: .userInitiated)
+
+    private var streamSession: StreamingInferenceSession?
+    private var streamTask: Task<Void, Never>?
 
     func start(model modelId: String, useHFMirror: Bool = false) {
         stop()
@@ -31,8 +35,10 @@ final class ASRBridge {
         Task.detached { [weak self] in
             do {
                 let loaded: any STTGenerationModel = try await Self.load(kind: kind, modelId: modelId)
+                let qwen3 = loaded as? Qwen3ASRModel
                 DispatchQueue.main.async {
                     self?.model = loaded
+                    self?.qwen3Model = qwen3
                     self?.setState(.ready)
                 }
             } catch {
@@ -60,9 +66,80 @@ final class ASRBridge {
     }
 
     func stop() {
+        cancelStream()
         model = nil
+        qwen3Model = nil
         setState(.idle)
     }
+
+    // MARK: - Streaming
+
+    var supportsStreaming: Bool { qwen3Model != nil }
+
+    func startStream(language: String?, onUpdate: @escaping (String, String) -> Void) {
+        guard let qwen3 = qwen3Model else { return }
+
+        cancelStream()
+
+        let lang = (language ?? "").isEmpty ? "auto" : language!
+        let config = StreamingConfig(
+            decodeIntervalSeconds: 0.8,
+            delayPreset: .realtime,
+            language: lang
+        )
+        let session = StreamingInferenceSession(model: qwen3, config: config)
+        streamSession = session
+
+        streamTask = Task { [weak self] in
+            for await event in session.events {
+                switch event {
+                case .displayUpdate(let confirmed, let provisional):
+                    DispatchQueue.main.async { onUpdate(confirmed, provisional) }
+                case .ended(let fullText):
+                    DispatchQueue.main.async { onUpdate(fullText, "") }
+                default:
+                    break
+                }
+            }
+            DispatchQueue.main.async { self?.streamSession = nil }
+        }
+    }
+
+    func feedSamples(_ samples: [Float]) {
+        streamSession?.feedAudio(samples: samples)
+    }
+
+    func stopStream(completion: @escaping (String) -> Void) {
+        guard let session = streamSession else {
+            completion("")
+            return
+        }
+
+        let task = Task { [weak self] in
+            session.stop()
+            var finalText = ""
+            for await event in session.events {
+                if case .ended(let text) = event {
+                    finalText = text
+                }
+            }
+            DispatchQueue.main.async {
+                self?.streamSession = nil
+                self?.streamTask = nil
+                completion(finalText)
+            }
+        }
+        _ = task
+    }
+
+    func cancelStream() {
+        streamSession?.cancel()
+        streamTask?.cancel()
+        streamSession = nil
+        streamTask = nil
+    }
+
+    // MARK: - Batch (fallback for non-Qwen3 models)
 
     func transcribe(audioPath: String, language: String?, completion: @escaping (Result<String, Error>) -> Void) {
         guard let model = self.model else {

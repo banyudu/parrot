@@ -10,6 +10,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBar: StatusBarController!
 
     private var levelTimer: Timer?
+    private var isStreaming = false
+
+    private var displayedText = ""
+    private var confirmedRaw = ""
+    private var polishedPrefix = ""
+    private var lastPolishBoundary = 0
+    private var isPolishing = false
 
     // MARK: - Lifecycle
 
@@ -70,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        if recorder.isRecording { _ = recorder.stop() }
+        if recorder.isRecording { recorder.stop() }
         hotkey.unregister()
         asr.stop()
         polisher.unload()
@@ -92,6 +99,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         do {
+            if asr.supportsStreaming {
+                let lang = config.language.isEmpty ? nil : config.language
+                resetTypingState()
+
+                asr.startStream(language: lang) { [weak self] confirmed, provisional in
+                    self?.handleStreamUpdate(confirmed: confirmed, provisional: provisional)
+                }
+                recorder.onSamples = { [weak self] samples in
+                    self?.asr.feedSamples(samples)
+                }
+                isStreaming = true
+            } else {
+                recorder.onSamples = nil
+                isStreaming = false
+            }
+
             try recorder.start()
             overlay.showRecording()
             statusBar.setRecording(true)
@@ -102,40 +125,117 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Streaming text
+
+    private func handleStreamUpdate(confirmed: String, provisional: String) {
+        confirmedRaw = confirmed
+        let desired = buildDisplayText(provisional: provisional)
+        if desired != displayedText {
+            PasteService.replaceText(from: displayedText, to: desired)
+            displayedText = desired
+        }
+        trySentencePolish()
+    }
+
+    private func buildDisplayText(provisional: String) -> String {
+        let unpolished = String(confirmedRaw.dropFirst(lastPolishBoundary))
+        return polishedPrefix + unpolished + provisional
+    }
+
+    private static let sentenceEnders: CharacterSet = {
+        var cs = CharacterSet()
+        for s in [".", "!", "?", "。", "！", "？", "\n"] {
+            cs.insert(s.unicodeScalars.first!)
+        }
+        return cs
+    }()
+
+    private func trySentencePolish() {
+        guard config.polishEnabled, polisher.state == .ready, !isPolishing else { return }
+
+        let unpolished = String(confirmedRaw.dropFirst(lastPolishBoundary))
+        guard let lastEnd = unpolished.rangeOfCharacter(from: Self.sentenceEnders, options: .backwards) else { return }
+        let sentenceEnd = unpolished.distance(from: unpolished.startIndex, to: lastEnd.upperBound)
+        guard sentenceEnd > 0 else { return }
+
+        let toPolish = String(unpolished.prefix(sentenceEnd))
+        let boundary = lastPolishBoundary + sentenceEnd
+        isPolishing = true
+
+        polisher.polish(toPolish) { [weak self] polished in
+            guard let self else { return }
+            self.isPolishing = false
+
+            let oldDisplay = self.displayedText
+            self.polishedPrefix += polished
+            self.lastPolishBoundary = boundary
+
+            let remaining = String(self.confirmedRaw.dropFirst(self.lastPolishBoundary))
+            let newDisplay = self.polishedPrefix + remaining
+            if newDisplay != oldDisplay {
+                PasteService.replaceText(from: oldDisplay, to: newDisplay)
+                self.displayedText = newDisplay
+            }
+
+            self.trySentencePolish()
+        }
+    }
+
+    // MARK: - Stop & finish
+
     private func stopAndTranscribe() {
         stopLevelFeed()
+        recorder.stop()
+        statusBar.setRecording(false)
 
-        guard let url = recorder.stop() else {
+        if isStreaming {
+            overlay.showProcessing()
+            asr.stopStream { [weak self] finalText in
+                guard let self else { return }
+                self.confirmedRaw = finalText
+                self.finishWithText(finalText)
+            }
+        } else {
             overlay.hide()
-            statusBar.setRecording(false)
+        }
+    }
+
+    private func finishWithText(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmed.isEmpty {
+            if !displayedText.isEmpty {
+                PasteService.deleteBackward(count: displayedText.count)
+            }
+            resetTypingState()
+            overlay.hide()
             return
         }
-        statusBar.setRecording(false)
-        overlay.showProcessing()
 
-        let lang = config.language.isEmpty ? nil : config.language
+        let remainingRaw = String(confirmedRaw.dropFirst(lastPolishBoundary))
 
-        asr.transcribe(audioPath: url.path, language: lang) { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success(let text):
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.isEmpty {
-                    self.overlay.hide()
-                } else if self.config.polishEnabled && self.polisher.state == .ready {
-                    self.polisher.polish(trimmed) { polished in
-                        self.overlay.showDone()
-                        PasteService.paste(polished, copyToClipboard: self.config.copyToClipboard)
-                    }
-                } else {
-                    self.overlay.showDone()
-                    PasteService.paste(trimmed, copyToClipboard: self.config.copyToClipboard)
-                }
-            case .failure:
-                self.overlay.showError()
+        if config.polishEnabled && polisher.state == .ready && !remainingRaw.isEmpty {
+            polisher.polish(remainingRaw) { [weak self] polished in
+                guard let self else { return }
+                let finalText = self.polishedPrefix + polished
+                let oldDisplay = self.displayedText
+                PasteService.replaceText(from: oldDisplay, to: finalText)
+                self.displayedText = finalText
+                self.resetTypingState()
+                self.overlay.showDone()
             }
-            try? FileManager.default.removeItem(at: url)
+        } else {
+            resetTypingState()
+            overlay.showDone()
         }
+    }
+
+    private func resetTypingState() {
+        displayedText = ""
+        confirmedRaw = ""
+        polishedPrefix = ""
+        lastPolishBoundary = 0
+        isPolishing = false
     }
 
     // MARK: - Audio level feed
