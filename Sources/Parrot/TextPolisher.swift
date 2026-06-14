@@ -83,7 +83,11 @@ final class TextPolisher {
                 }
                 return result
             }
-            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            var cleaned = output
+            if let range = cleaned.range(of: #"<think>[\s\S]*?</think>\s*"#, options: .regularExpression) {
+                cleaned.removeSubrange(range)
+            }
+            let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? text : trimmed
         } catch {
             NSLog("[Polish] Generation error: %@", error.localizedDescription)
@@ -97,6 +101,7 @@ final class TextPolisher {
     }
 
     private static let systemPrompt = """
+        /no_think
         You are a dictation text polisher. Clean up speech-to-text output:
         - Remove stutters, repetitions, and false starts
         - Remove filler words (um, uh, like, you know, 那个, 嗯, 然后, 就是说)

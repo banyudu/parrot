@@ -83,6 +83,11 @@ final class StatusBarController {
         hkItem.isEnabled = false
         menu.addItem(hkItem)
 
+        let modeLabel = delegate.currentConfig.hotkeyMode == "hold" ? "Mode: Hold" : "Mode: Toggle"
+        let modeItem = NSMenuItem(title: modeLabel, action: #selector(onToggleHotkeyMode), keyEquivalent: "")
+        modeItem.target = self
+        menu.addItem(modeItem)
+
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(title: "Quit Parrot", action: #selector(onQuit), keyEquivalent: "q")
@@ -94,6 +99,7 @@ final class StatusBarController {
 
     @objc private func onToggleRecording() { delegate?.toggleRecording() }
     @objc private func onTogglePolish() { delegate?.togglePolish() }
+    @objc private func onToggleHotkeyMode() { delegate?.toggleHotkeyMode() }
     @objc private func onSelectModel(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
         delegate?.selectModel(id)

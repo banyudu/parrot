@@ -233,6 +233,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Hotkey mode
+
+    func toggleHotkeyMode() {
+        config.hotkeyMode = config.hotkeyMode == "hold" ? "toggle" : "hold"
+        config.save()
+        hotkey.unregister()
+        bindHotkey()
+        statusBar.rebuildMenu()
+    }
+
     // MARK: - Accessors
 
     var currentConfig: AppConfig { config }
