@@ -68,6 +68,20 @@ final class StatusBarController {
         streamItem.target = self
         menu.addItem(streamItem)
 
+        // Language submenu
+        let langMenu = NSMenu()
+        let currentLang = delegate.currentConfig.language
+        for (label, value) in AppConfig.languageOptions {
+            let item = NSMenuItem(title: label, action: #selector(onSelectLanguage(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = value
+            item.state = (currentLang == value) ? .on : .off
+            langMenu.addItem(item)
+        }
+        let langItem = NSMenuItem(title: "Language", action: nil, keyEquivalent: "")
+        langItem.submenu = langMenu
+        menu.addItem(langItem)
+
         // Model submenu
         let modelMenu = NSMenu()
         for family in AppConfig.modelFamilies {
@@ -110,6 +124,10 @@ final class StatusBarController {
     @objc private func onTogglePolish() { delegate?.togglePolish() }
     @objc private func onToggleHotkeyMode() { delegate?.toggleHotkeyMode() }
     @objc private func onToggleStreaming() { delegate?.toggleStreaming() }
+    @objc private func onSelectLanguage(_ sender: NSMenuItem) {
+        guard let lang = sender.representedObject as? String else { return }
+        delegate?.selectLanguage(lang)
+    }
     @objc private func onSelectModel(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
         delegate?.selectModel(id)

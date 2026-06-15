@@ -148,6 +148,12 @@ struct AppConfig: Codable {
         ),
     ]
 
+    static let languageOptions: [(label: String, value: String)] = [
+        ("Auto", ""),
+        ("English", "English"),
+        ("Chinese", "Chinese"),
+    ]
+
     var modelFamily: ModelFamily? {
         Self.modelFamilies.first { $0.hasVariant(model) }
     }

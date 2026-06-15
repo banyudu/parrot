@@ -401,6 +401,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Language
+
+    func selectLanguage(_ lang: String) {
+        guard lang != config.language else { return }
+        config.language = lang
+        config.save()
+        statusBar.rebuildMenu()
+    }
+
     // MARK: - Streaming
 
     func toggleStreaming() {
