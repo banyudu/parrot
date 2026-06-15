@@ -20,6 +20,7 @@ define assemble_app
 	@cp "$(BUILD_DIR)/$(APP_NAME)" "$(1)/Contents/MacOS/"
 	@cp "$(METALLIB)" "$(1)/Contents/MacOS/mlx.metallib"
 	@cp Resources/Info.plist "$(1)/Contents/"
+	@cp Resources/AppIcon.icns "$(1)/Contents/Resources/"
 	@if [ "$(SIGN_IDENTITY)" = "-" ]; then \
 		codesign --force --deep --sign - "$(1)"; \
 	else \
