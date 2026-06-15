@@ -205,8 +205,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             let lang = config.language.isEmpty ? nil : config.language
+            let gen = sessionGeneration
             asr.transcribe(audioPath: audioURL.path, language: lang) { [weak self] result in
-                guard let self else { return }
+                guard let self, self.sessionGeneration == gen else { return }
                 switch result {
                 case .success(let text):
                     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -224,8 +225,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if let audioURL {
             overlay.showProcessing()
             let lang = config.language.isEmpty ? nil : config.language
+            let gen = sessionGeneration
             asr.transcribe(audioPath: audioURL.path, language: lang) { [weak self] result in
-                guard let self else { return }
+                guard let self, self.sessionGeneration == gen else { return }
                 switch result {
                 case .success(let text):
                     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -233,6 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.overlay.hide()
                     } else if self.config.polishEnabled && self.polisher.state == .ready {
                         self.polisher.polish(trimmed) { polished in
+                            guard self.sessionGeneration == gen else { return }
                             self.overlay.showDone()
                             PasteService.paste(polished, copyToClipboard: self.config.copyToClipboard)
                         }
@@ -262,11 +265,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        let gen = sessionGeneration
+
         if displayedText.isEmpty {
             // Batch-only path (no streaming) — replace via paste
             if config.polishEnabled && polisher.state == .ready {
                 polisher.polish(trimmed) { [weak self] polished in
-                    guard let self else { return }
+                    guard let self, self.sessionGeneration == gen else { return }
                     self.overlay.showDone()
                     PasteService.paste(polished, copyToClipboard: self.config.copyToClipboard)
                     self.resetTypingState()
@@ -285,7 +290,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if config.polishEnabled && polisher.state == .ready {
             polisher.polish(trimmed) { [weak self] polished in
-                guard let self else { return }
+                guard let self, self.sessionGeneration == gen else { return }
                 PasteService.replaceText(from: self.displayedText, to: polished)
                 self.displayedText = polished
                 self.resetTypingState()
