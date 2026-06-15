@@ -26,10 +26,19 @@ final class AutoUpdater {
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 15
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            guard let self, let data else {
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else { return }
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+
+            guard let data, error == nil, statusCode == 200 else {
                 if !silent {
-                    DispatchQueue.main.async { self?.showError() }
+                    DispatchQueue.main.async {
+                        if statusCode == 404 {
+                            self.showUpToDateAlert()
+                        } else {
+                            self.showError()
+                        }
+                    }
                 }
                 return
             }

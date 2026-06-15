@@ -1,4 +1,4 @@
-.PHONY: build run dev dmg install clean release
+.PHONY: build run dev dmg install clean release grant-accessibility
 
 APP_NAME    = Parrot
 BUILD_DIR   = .build/release
@@ -80,6 +80,13 @@ install: build
 	@rm -rf /Applications/$(APP_BUNDLE)
 	@cp -R $(APP_BUNDLE) /Applications/$(APP_BUNDLE)
 	@echo "Installed to /Applications/$(APP_BUNDLE)"
+
+grant-accessibility:
+	@osascript -e 'tell application "System Events" to log ""' 2>/dev/null && \
+		echo "Accessibility already granted." || \
+		(tccutil reset Accessibility com.banyudu.parrot 2>/dev/null; \
+		open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"; \
+		echo "Add Parrot in System Settings > Privacy & Security > Accessibility.")
 
 clean:
 	swift package clean
