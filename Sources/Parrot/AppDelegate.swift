@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var polishedPrefix = ""
     private var lastPolishBoundary = 0
     private var isPolishing = false
+    private var sessionGeneration = 0
 
     // MARK: - Lifecycle
 
@@ -77,7 +78,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        if recorder.isRecording { recorder.stop() }
+        if recorder.isRecording {
+            if let url = recorder.stop() { try? FileManager.default.removeItem(at: url) }
+        }
         hotkey.unregister()
         asr.stop()
         polisher.unload()
@@ -161,10 +164,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let toPolish = String(unpolished.prefix(sentenceEnd))
         let boundary = lastPolishBoundary + sentenceEnd
         isPolishing = true
+        let gen = sessionGeneration
 
         polisher.polish(toPolish) { [weak self] polished in
             guard let self else { return }
             self.isPolishing = false
+            guard self.sessionGeneration == gen else { return }
 
             let oldDisplay = self.displayedText
             self.polishedPrefix += polished
@@ -190,6 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if isStreaming {
             overlay.showProcessing()
+            sessionGeneration += 1
             asr.cancelStream()
 
             guard let audioURL else {
@@ -292,6 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func resetTypingState() {
+        sessionGeneration += 1
         displayedText = ""
         confirmedRaw = ""
         polishedPrefix = ""

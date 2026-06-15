@@ -5,6 +5,7 @@ final class AudioRecorder {
     private var engine: AVAudioEngine?
     private var converter: AVAudioConverter?
     private var accumulatedSamples: [Float] = []
+    private let sampleLock = NSLock()
     private(set) var isRecording = false
     private(set) var level: Float = 0
 
@@ -26,7 +27,9 @@ final class AudioRecorder {
 
         let conv = AVAudioConverter(from: hwFormat, to: monoFormat)!
         converter = conv
+        sampleLock.lock()
         accumulatedSamples.removeAll()
+        sampleLock.unlock()
 
         node.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) {
             [weak self] buffer, _ in
@@ -53,7 +56,9 @@ final class AudioRecorder {
             let count = Int(outBuffer.frameLength)
             guard count > 0, let ptr = outBuffer.floatChannelData?[0] else { return }
             let samples16k = Array(UnsafeBufferPointer(start: ptr, count: count))
+            self.sampleLock.lock()
             self.accumulatedSamples.append(contentsOf: samples16k)
+            self.sampleLock.unlock()
             self.onSamples?(samples16k)
         }
 
@@ -70,14 +75,20 @@ final class AudioRecorder {
         converter = nil
         isRecording = false
 
-        guard !accumulatedSamples.isEmpty else { return nil }
+        sampleLock.lock()
+        let samples = accumulatedSamples
+        accumulatedSamples.removeAll()
+        sampleLock.unlock()
+
+        guard !samples.isEmpty else { return nil }
 
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("parrot_\(UUID().uuidString).wav")
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: AVAudioFrameCount(accumulatedSamples.count)) else { return nil }
-        buffer.frameLength = AVAudioFrameCount(accumulatedSamples.count)
-        memcpy(buffer.floatChannelData![0], &accumulatedSamples, accumulatedSamples.count * MemoryLayout<Float>.size)
-        accumulatedSamples.removeAll()
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: AVAudioFrameCount(samples.count)) else { return nil }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer { ptr in
+            memcpy(buffer.floatChannelData![0], ptr.baseAddress!, samples.count * MemoryLayout<Float>.size)
+        }
 
         do {
             let file = try AVAudioFile(forWriting: url, settings: monoFormat.settings)
