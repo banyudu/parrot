@@ -83,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         PasteService.ensureAccessibility()
         bindHotkey()
+        AutoUpdater.shared.checkOnLaunch()
 
         asr.start(model: config.model, useHFMirror: config.useHFMirror)
         if config.polishEnabled {

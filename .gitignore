@@ -64,3 +64,6 @@ fastlane/test_output
 # Build artifacts
 dist/
 Parrot.app/
+
+# Claude Code
+.claude/

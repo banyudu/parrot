@@ -113,6 +113,11 @@ final class StatusBarController {
 
         menu.addItem(.separator())
 
+        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(onCheckForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(updateItem)
+        menu.addItem(.separator())
+
         let quitItem = NSMenuItem(title: "Quit Parrot", action: #selector(onQuit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
@@ -132,5 +137,6 @@ final class StatusBarController {
         guard let id = sender.representedObject as? String else { return }
         delegate?.selectModel(id)
     }
+    @objc private func onCheckForUpdates() { AutoUpdater.shared.checkForUpdates() }
     @objc private func onQuit() { NSApp.terminate(nil) }
 }
