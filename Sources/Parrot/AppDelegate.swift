@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let polisher = TextPolisher()
     private var statusBar: StatusBarController!
 
+    private let focusTracker = FocusTracker()
     private var levelTimer: Timer?
     private var isStreaming = false
 
@@ -177,12 +178,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if trimmed.isEmpty {
                     self.overlay.hide()
                 } else if self.config.polishEnabled && self.polisher.state == .ready {
-                    self.polisher.polish(trimmed) { polished in
+                    let lang = self.config.language.isEmpty ? nil : self.config.language
+                    self.polisher.polish(trimmed, language: lang) { polished in
                         guard self.sessionGeneration == gen else { return }
+                        self.focusTracker.restore()
                         self.overlay.showDone()
                         PasteService.paste(polished, copyToClipboard: self.config.copyToClipboard)
                     }
                 } else {
+                    self.focusTracker.restore()
                     self.overlay.showDone()
                     PasteService.paste(trimmed, copyToClipboard: self.config.copyToClipboard)
                 }
@@ -212,6 +216,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startRecording() {
         cancelIdleTimer()
+        focusTracker.capture()
+        overlay.setAnchor(focusTracker.cursorRect())
 
         let modelReady = asr.state == .ready
 
@@ -275,6 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         confirmedRaw = confirmed
         let desired = buildDisplayText(provisional: provisional)
         if desired != displayedText {
+            focusTracker.restore()
             PasteService.replaceText(from: displayedText, to: desired)
             displayedText = desired
         }
@@ -307,7 +314,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isPolishing = true
         let gen = sessionGeneration
 
-        polisher.polish(toPolish) { [weak self] polished in
+        let lang = config.language.isEmpty ? nil : config.language
+        polisher.polish(toPolish, language: lang) { [weak self] polished in
             guard let self else { return }
             self.isPolishing = false
             guard self.sessionGeneration == gen else { return }
@@ -319,6 +327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let remaining = String(self.confirmedRaw.dropFirst(self.lastPolishBoundary))
             let newDisplay = self.polishedPrefix + remaining
             if newDisplay != oldDisplay {
+                self.focusTracker.restore()
                 PasteService.replaceText(from: oldDisplay, to: newDisplay)
                 self.displayedText = newDisplay
             }
@@ -358,9 +367,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case .success(let text):
                     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                     self.confirmedRaw = trimmed
+                    self.focusTracker.restore()
                     self.finishWithText(trimmed)
                 case .failure:
                     if !self.displayedText.isEmpty {
+                        self.focusTracker.restore()
                         PasteService.deleteBackward(count: self.displayedText.count)
                     }
                     self.resetTypingState()
@@ -389,12 +400,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     if trimmed.isEmpty {
                         self.overlay.hide()
                     } else if self.config.polishEnabled && self.polisher.state == .ready {
-                        self.polisher.polish(trimmed) { polished in
+                        let lang = self.config.language.isEmpty ? nil : self.config.language
+                        self.polisher.polish(trimmed, language: lang) { polished in
                             guard self.sessionGeneration == gen else { return }
+                            self.focusTracker.restore()
                             self.overlay.showDone()
                             PasteService.paste(polished, copyToClipboard: self.config.copyToClipboard)
                         }
                     } else {
+                        self.focusTracker.restore()
                         self.overlay.showDone()
                         PasteService.paste(trimmed, copyToClipboard: self.config.copyToClipboard)
                     }
@@ -424,16 +438,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let gen = sessionGeneration
 
+        let lang = config.language.isEmpty ? nil : config.language
+
         if displayedText.isEmpty {
-            // Batch-only path (no streaming) — replace via paste
             if config.polishEnabled && polisher.state == .ready {
-                polisher.polish(trimmed) { [weak self] polished in
+                polisher.polish(trimmed, language: lang) { [weak self] polished in
                     guard let self, self.sessionGeneration == gen else { return }
+                    self.focusTracker.restore()
                     self.overlay.showDone()
                     PasteService.paste(polished, copyToClipboard: self.config.copyToClipboard)
                     self.resetTypingState()
                 }
             } else {
+                focusTracker.restore()
                 overlay.showDone()
                 PasteService.paste(trimmed, copyToClipboard: self.config.copyToClipboard)
                 resetTypingState()
@@ -441,13 +458,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Streaming path — replace displayed text with batch result, then polish
         PasteService.replaceText(from: displayedText, to: trimmed)
         displayedText = trimmed
 
         if config.polishEnabled && polisher.state == .ready {
-            polisher.polish(trimmed) { [weak self] polished in
+            polisher.polish(trimmed, language: lang) { [weak self] polished in
                 guard let self, self.sessionGeneration == gen else { return }
+                self.focusTracker.restore()
                 PasteService.replaceText(from: self.displayedText, to: polished)
                 self.displayedText = polished
                 self.resetTypingState()
@@ -466,6 +483,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         polishedPrefix = ""
         lastPolishBoundary = 0
         isPolishing = false
+        focusTracker.clear()
+        overlay.setAnchor(nil)
     }
 
     // MARK: - Audio level feed

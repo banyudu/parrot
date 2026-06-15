@@ -27,6 +27,7 @@ final class OverlayPanel {
     private let textLabel: NSTextField
 
     var audioLevel: Float = 0
+    private var anchorRect: CGRect?
 
     init() {
         let barsW = CGFloat(kBarCount) * kBarWidth + CGFloat(kBarCount - 1) * kBarGap
@@ -105,6 +106,39 @@ final class OverlayPanel {
         textContainer.addSubview(textLabel)
     }
 
+    // MARK: - Anchor
+
+    func setAnchor(_ rect: CGRect?) {
+        anchorRect = rect
+        repositionPanels()
+    }
+
+    private func repositionPanels() {
+        let screen = NSScreen.main?.frame ?? .zero
+
+        let centerX: CGFloat
+        let baseY: CGFloat
+
+        if let anchor = anchorRect {
+            centerX = anchor.midX
+            baseY = anchor.minY - kPanelH - 8
+        } else {
+            centerX = screen.width / 2
+            baseY = screen.height * 0.10
+        }
+
+        let panelX = max(0, min(centerX - kPanelW / 2, screen.width - kPanelW))
+        let clampedY = max(8, min(baseY, screen.height - kPanelH - kTextPanelH - kTextGap - 8))
+
+        var pf = panel.frame
+        pf.origin = NSPoint(x: panelX, y: clampedY)
+        panel.setFrame(pf, display: false)
+
+        var tf = textPanel.frame
+        tf.origin.y = clampedY + kPanelH + kTextGap
+        textPanel.setFrame(tf, display: false)
+    }
+
     // MARK: - Public
 
     func showRecording() {
@@ -169,7 +203,8 @@ final class OverlayPanel {
         let attrStr = NSAttributedString(string: full, attributes: [.font: textLabel.font!])
         let textWidth = min(attrStr.size().width + kTextPadding * 2 + 4, kTextMaxW)
         let screen = NSScreen.main?.frame ?? .zero
-        let newX = (screen.width - textWidth) / 2
+        let anchorCenterX = anchorRect?.midX ?? screen.width / 2
+        let newX = max(0, min(anchorCenterX - textWidth / 2, screen.width - textWidth))
         var frame = textPanel.frame
         frame.origin.x = newX
         frame.size.width = textWidth

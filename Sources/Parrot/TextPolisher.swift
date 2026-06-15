@@ -47,23 +47,24 @@ final class TextPolisher {
         setState(.idle)
     }
 
-    func polish(_ text: String, completion: @escaping (String) -> Void) {
+    func polish(_ text: String, language: String? = nil, completion: @escaping (String) -> Void) {
         guard let container else {
             completion(text)
             return
         }
 
         Task.detached {
-            let result = await Self.generate(container: container, text: text)
+            let result = await Self.generate(container: container, text: text, language: language)
             DispatchQueue.main.async { completion(result) }
         }
     }
 
-    private static func generate(container: ModelContainer, text: String) async -> String {
+    private static func generate(container: ModelContainer, text: String, language: String?) async -> String {
         do {
+            let prompt = buildSystemPrompt(language: language)
             let output: String = try await container.perform { context in
                 let messages: [Chat.Message] = [
-                    .system(systemPrompt),
+                    .system(prompt),
                     .user(text),
                 ]
                 let input = UserInput(prompt: .chat(messages))
@@ -100,15 +101,27 @@ final class TextPolisher {
         onStateChange?(s)
     }
 
-    private static let systemPrompt = """
-        /no_think
-        You are a dictation text polisher. Clean up speech-to-text output:
-        - Remove stutters, repetitions, and false starts
-        - Remove filler words (um, uh, like, you know, 那个, 嗯, 然后, 就是说)
-        - Fix obvious speech recognition errors
-        - Add proper punctuation and capitalization
-        - Preserve the original language — do not translate
-        - Preserve the original meaning exactly
-        Output ONLY the cleaned text, nothing else.
-        """
+    private static func buildSystemPrompt(language: String?) -> String {
+        let langRule: String
+        switch language {
+        case "en":
+            langRule = "The output MUST be in English. Do not translate to any other language."
+        case "zh":
+            langRule = "The output MUST be in Chinese. Do not translate to any other language."
+        default:
+            langRule = "Preserve the original language — do not translate."
+        }
+
+        return """
+            /no_think
+            You are a dictation text polisher. Clean up speech-to-text output:
+            - Remove stutters, repetitions, and false starts
+            - Remove filler words (um, uh, like, you know, 那个, 嗯, 然后, 就是说)
+            - Fix obvious speech recognition errors
+            - Add proper punctuation and capitalization
+            - \(langRule)
+            - Preserve the original meaning exactly
+            Output ONLY the cleaned text, nothing else.
+            """
+    }
 }
