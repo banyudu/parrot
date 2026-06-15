@@ -1,4 +1,4 @@
-.PHONY: build run dev dmg install clean
+.PHONY: build run dev dmg install clean release
 
 APP_NAME    = Parrot
 BUILD_DIR   = .build/release
@@ -84,3 +84,15 @@ install: build
 clean:
 	swift package clean
 	@rm -rf "$(APP_BUNDLE)" "$(DIST_DIR)" "$(METALLIB)"
+
+release:
+ifndef VERSION
+	$(error Usage: make release VERSION=0.2.0)
+endif
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" Resources/Info.plist
+	@BUILD=$$(git rev-list HEAD --count); \
+		/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $$BUILD" Resources/Info.plist
+	@git add Resources/Info.plist
+	@git commit -m "chore: bump version to $(VERSION)"
+	@git tag -a "v$(VERSION)" -m "v$(VERSION)"
+	@echo "Tagged v$(VERSION) — push with: git push origin main v$(VERSION)"
