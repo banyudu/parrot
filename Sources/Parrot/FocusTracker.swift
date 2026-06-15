@@ -10,6 +10,7 @@ final class FocusTracker {
 
     func capture() {
         guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+            NSLog("[Focus] No frontmost application")
             target = nil
             return
         }
@@ -19,6 +20,7 @@ final class FocusTracker {
             appElement, kAXFocusedUIElementAttribute as CFString, &focusedValue
         )
         guard result == .success else {
+            NSLog("[Focus] Cannot get focused element from %@ (error %d)", frontApp.localizedName ?? "?", result.rawValue)
             target = nil
             return
         }
@@ -36,37 +38,56 @@ final class FocusTracker {
     }
 
     func cursorRect() -> CGRect? {
-        guard let target else { return nil }
-
-        var rangeValue: AnyObject?
-        let rangeOK = AXUIElementCopyAttributeValue(
-            target.element, kAXSelectedTextRangeAttribute as CFString, &rangeValue
-        )
-        if rangeOK == .success, let range = rangeValue {
-            var boundsValue: AnyObject?
-            let boundsOK = AXUIElementCopyParameterizedAttributeValue(
-                target.element,
-                kAXBoundsForRangeParameterizedAttribute as CFString,
-                range,
-                &boundsValue
-            )
-            if boundsOK == .success, let bv = boundsValue {
-                var rect = CGRect.zero
-                if AXValueGetValue(bv as! AXValue, .cgRect, &rect) {
-                    return axRectToScreen(rect)
-                }
-            }
+        guard let target else {
+            NSLog("[Focus] cursorRect: no target")
+            return nil
         }
 
-        return elementRect()
+        if let rect = caretBounds(target.element) {
+            NSLog("[Focus] cursorRect: got caret bounds")
+            return rect
+        }
+
+        if let rect = elementRect(target.element) {
+            NSLog("[Focus] cursorRect: got element rect")
+            return rect
+        }
+
+        if let rect = focusedWindowRect(target.app) {
+            NSLog("[Focus] cursorRect: fell back to window rect")
+            return rect
+        }
+
+        NSLog("[Focus] cursorRect: all methods failed")
+        return nil
     }
 
-    private func elementRect() -> CGRect? {
-        guard let target else { return nil }
+    private func caretBounds(_ element: AXUIElement) -> CGRect? {
+        var rangeValue: AnyObject?
+        let rangeOK = AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextRangeAttribute as CFString, &rangeValue
+        )
+        guard rangeOK == .success, let range = rangeValue else { return nil }
+
+        var boundsValue: AnyObject?
+        let boundsOK = AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXBoundsForRangeParameterizedAttribute as CFString,
+            range,
+            &boundsValue
+        )
+        guard boundsOK == .success, let bv = boundsValue else { return nil }
+
+        var rect = CGRect.zero
+        guard AXValueGetValue(bv as! AXValue, .cgRect, &rect) else { return nil }
+        return axRectToScreen(rect)
+    }
+
+    private func elementRect(_ element: AXUIElement) -> CGRect? {
         var posValue: AnyObject?
         var sizeValue: AnyObject?
-        guard AXUIElementCopyAttributeValue(target.element, kAXPositionAttribute as CFString, &posValue) == .success,
-              AXUIElementCopyAttributeValue(target.element, kAXSizeAttribute as CFString, &sizeValue) == .success
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posValue) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success
         else { return nil }
 
         var pos = CGPoint.zero
@@ -76,6 +97,17 @@ final class FocusTracker {
         else { return nil }
 
         return axRectToScreen(CGRect(origin: pos, size: size))
+    }
+
+    private func focusedWindowRect(_ app: NSRunningApplication) -> CGRect? {
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        var windowValue: AnyObject?
+        guard AXUIElementCopyAttributeValue(
+            appElement, kAXFocusedWindowAttribute as CFString, &windowValue
+        ) == .success else { return nil }
+
+        let window = windowValue as! AXUIElement
+        return elementRect(window)
     }
 
     private func axRectToScreen(_ axRect: CGRect) -> CGRect {
