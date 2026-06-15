@@ -99,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         do {
-            if asr.supportsStreaming {
+            if asr.supportsStreaming && config.streamingEnabled {
                 let lang = config.language.isEmpty ? nil : config.language
                 resetTypingState()
 
@@ -185,15 +185,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func stopAndTranscribe() {
         stopLevelFeed()
-        recorder.stop()
+        let audioURL = recorder.stop()
         statusBar.setRecording(false)
 
         if isStreaming {
             overlay.showProcessing()
-            asr.stopStream { [weak self] finalText in
+            asr.cancelStream()
+
+            guard let audioURL else {
+                resetTypingState()
+                overlay.hide()
+                return
+            }
+
+            let lang = config.language.isEmpty ? nil : config.language
+            asr.transcribe(audioPath: audioURL.path, language: lang) { [weak self] result in
                 guard let self else { return }
-                self.confirmedRaw = finalText
-                self.finishWithText(finalText)
+                switch result {
+                case .success(let text):
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    self.confirmedRaw = trimmed
+                    self.finishWithText(trimmed)
+                case .failure:
+                    if !self.displayedText.isEmpty {
+                        PasteService.deleteBackward(count: self.displayedText.count)
+                    }
+                    self.resetTypingState()
+                    self.overlay.showError()
+                }
+                try? FileManager.default.removeItem(at: audioURL)
+            }
+        } else if let audioURL {
+            overlay.showProcessing()
+            let lang = config.language.isEmpty ? nil : config.language
+            asr.transcribe(audioPath: audioURL.path, language: lang) { [weak self] result in
+                guard let self else { return }
+                switch result {
+                case .success(let text):
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.isEmpty {
+                        self.overlay.hide()
+                    } else if self.config.polishEnabled && self.polisher.state == .ready {
+                        self.polisher.polish(trimmed) { polished in
+                            self.overlay.showDone()
+                            PasteService.paste(polished, copyToClipboard: self.config.copyToClipboard)
+                        }
+                    } else {
+                        self.overlay.showDone()
+                        PasteService.paste(trimmed, copyToClipboard: self.config.copyToClipboard)
+                    }
+                case .failure:
+                    self.overlay.showError()
+                }
+                try? FileManager.default.removeItem(at: audioURL)
             }
         } else {
             overlay.hide()
@@ -212,11 +256,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if config.polishEnabled && polisher.state == .ready && !trimmed.isEmpty {
+        if displayedText.isEmpty {
+            // Batch-only path (no streaming) — replace via paste
+            if config.polishEnabled && polisher.state == .ready {
+                polisher.polish(trimmed) { [weak self] polished in
+                    guard let self else { return }
+                    self.overlay.showDone()
+                    PasteService.paste(polished, copyToClipboard: self.config.copyToClipboard)
+                    self.resetTypingState()
+                }
+            } else {
+                overlay.showDone()
+                PasteService.paste(trimmed, copyToClipboard: self.config.copyToClipboard)
+                resetTypingState()
+            }
+            return
+        }
+
+        // Streaming path — replace displayed text with batch result, then polish
+        PasteService.replaceText(from: displayedText, to: trimmed)
+        displayedText = trimmed
+
+        if config.polishEnabled && polisher.state == .ready {
             polisher.polish(trimmed) { [weak self] polished in
                 guard let self else { return }
-                let oldDisplay = self.displayedText
-                PasteService.replaceText(from: oldDisplay, to: polished)
+                PasteService.replaceText(from: self.displayedText, to: polished)
                 self.displayedText = polished
                 self.resetTypingState()
                 self.overlay.showDone()
@@ -328,6 +392,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 onReleased: onReleased
             )
         }
+    }
+
+    // MARK: - Streaming
+
+    func toggleStreaming() {
+        config.streamingEnabled.toggle()
+        config.save()
+        statusBar.rebuildMenu()
     }
 
     // MARK: - Hotkey mode

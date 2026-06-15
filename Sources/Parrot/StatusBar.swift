@@ -59,6 +59,15 @@ final class StatusBarController {
         polishItem.target = self
         menu.addItem(polishItem)
 
+        // Streaming toggle
+        let streamItem = NSMenuItem(
+            title: delegate.currentConfig.streamingEnabled ? "Streaming: On" : "Streaming: Off",
+            action: #selector(onToggleStreaming),
+            keyEquivalent: ""
+        )
+        streamItem.target = self
+        menu.addItem(streamItem)
+
         // Model submenu
         let modelMenu = NSMenu()
         for family in AppConfig.modelFamilies {
@@ -100,6 +109,7 @@ final class StatusBarController {
     @objc private func onToggleRecording() { delegate?.toggleRecording() }
     @objc private func onTogglePolish() { delegate?.togglePolish() }
     @objc private func onToggleHotkeyMode() { delegate?.toggleHotkeyMode() }
+    @objc private func onToggleStreaming() { delegate?.toggleStreaming() }
     @objc private func onSelectModel(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
         delegate?.selectModel(id)
