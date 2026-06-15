@@ -16,6 +16,7 @@ struct AppConfig: Codable {
     var polishEnabled: Bool = true
     var polishModel: String = "mlx-community/Qwen3-4B-4bit"
     var streamingEnabled: Bool = true
+    var idleOffloadMinutes: Int = 5
 
     static let defaultUseHFMirror: Bool = {
         let region = Locale.current.region?.identifier ?? ""

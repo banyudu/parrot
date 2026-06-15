@@ -19,6 +19,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isPolishing = false
     private var sessionGeneration = 0
 
+    // Idle offload
+    private var idleTimer: Timer?
+    private var pendingRecordingStart = false
+    private var preloadAudioBuffer: [[Float]] = []
+    private let bufferLock = NSLock()
+    private var pendingTranscription: URL?
+
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -38,9 +45,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.statusBar.setLoading(true)
             case .ready:
                 self.updateStatusText()
+                if self.pendingRecordingStart && self.recorder.isRecording {
+                    self.pendingRecordingStart = false
+                    self.activateLiveASR()
+                } else if let audioURL = self.pendingTranscription {
+                    self.pendingTranscription = nil
+                    self.transcribePendingAudio(audioURL)
+                }
             case .error(let msg):
                 self.statusBar.setStatus("ASR error: \(msg)")
                 self.statusBar.setLoading(false)
+                if self.pendingRecordingStart {
+                    self.pendingRecordingStart = false
+                    self.drainBufferAndCleanup()
+                } else if let audioURL = self.pendingTranscription {
+                    self.pendingTranscription = nil
+                    try? FileManager.default.removeItem(at: audioURL)
+                    self.overlay.showError()
+                }
             }
         }
 
@@ -78,12 +100,103 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        idleTimer?.invalidate()
         if recorder.isRecording {
             if let url = recorder.stop() { try? FileManager.default.removeItem(at: url) }
         }
         hotkey.unregister()
         asr.stop()
         polisher.unload()
+    }
+
+    // MARK: - Idle offload
+
+    private func resetIdleTimer() {
+        idleTimer?.invalidate()
+        let minutes = config.idleOffloadMinutes
+        guard minutes > 0 else { return }
+        idleTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(minutes * 60), repeats: false) { [weak self] _ in
+            self?.offloadModels()
+        }
+    }
+
+    private func cancelIdleTimer() {
+        idleTimer?.invalidate()
+        idleTimer = nil
+    }
+
+    private func offloadModels() {
+        guard !recorder.isRecording else { return }
+        NSLog("[Idle] Offloading models after %d min idle", config.idleOffloadMinutes)
+        asr.stop()
+        polisher.unload()
+        statusBar.setStatus("Standby — models offloaded")
+        statusBar.setLoading(false)
+    }
+
+    private func activateLiveASR() {
+        if asr.supportsStreaming && config.streamingEnabled {
+            let lang = config.language.isEmpty ? nil : config.language
+            resetTypingState()
+
+            asr.startStream(language: lang) { [weak self] confirmed, provisional in
+                self?.handleStreamUpdate(confirmed: confirmed, provisional: provisional)
+            }
+
+            bufferLock.lock()
+            let buffered = preloadAudioBuffer
+            preloadAudioBuffer.removeAll()
+            bufferLock.unlock()
+
+            recorder.onSamples = { [weak self] samples in
+                self?.asr.feedSamples(samples)
+            }
+
+            for chunk in buffered {
+                asr.feedSamples(chunk)
+            }
+
+            isStreaming = true
+        } else {
+            recorder.onSamples = nil
+            isStreaming = false
+            drainBufferAndCleanup()
+        }
+    }
+
+    private func transcribePendingAudio(_ audioURL: URL) {
+        overlay.showProcessing()
+        let lang = config.language.isEmpty ? nil : config.language
+        let gen = sessionGeneration
+        asr.transcribe(audioPath: audioURL.path, language: lang) { [weak self] result in
+            guard let self, self.sessionGeneration == gen else { return }
+            switch result {
+            case .success(let text):
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    self.overlay.hide()
+                } else if self.config.polishEnabled && self.polisher.state == .ready {
+                    self.polisher.polish(trimmed) { polished in
+                        guard self.sessionGeneration == gen else { return }
+                        self.overlay.showDone()
+                        PasteService.paste(polished, copyToClipboard: self.config.copyToClipboard)
+                    }
+                } else {
+                    self.overlay.showDone()
+                    PasteService.paste(trimmed, copyToClipboard: self.config.copyToClipboard)
+                }
+            case .failure:
+                self.overlay.showError()
+            }
+            try? FileManager.default.removeItem(at: audioURL)
+            self.resetIdleTimer()
+        }
+    }
+
+    private func drainBufferAndCleanup() {
+        bufferLock.lock()
+        preloadAudioBuffer.removeAll()
+        bufferLock.unlock()
     }
 
     // MARK: - Recording
@@ -97,12 +210,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startRecording() {
-        guard asr.state == .ready else {
-            overlay.showError()
-            return
+        cancelIdleTimer()
+
+        let modelReady = asr.state == .ready
+
+        if !modelReady {
+            switch asr.state {
+            case .idle, .error:
+                asr.start(model: config.model, useHFMirror: config.useHFMirror)
+            case .loading, .downloading:
+                break
+            default:
+                break
+            }
+            if config.polishEnabled && polisher.state == .idle {
+                polisher.loadModel(config.polishModel, useHFMirror: config.useHFMirror)
+            }
         }
+
         do {
-            if asr.supportsStreaming && config.streamingEnabled {
+            if !modelReady {
+                pendingRecordingStart = true
+                bufferLock.lock()
+                preloadAudioBuffer.removeAll()
+                bufferLock.unlock()
+                recorder.onSamples = { [weak self] samples in
+                    guard let self else { return }
+                    self.bufferLock.lock()
+                    self.preloadAudioBuffer.append(samples)
+                    self.bufferLock.unlock()
+                }
+                isStreaming = false
+            } else if asr.supportsStreaming && config.streamingEnabled {
                 let lang = config.language.isEmpty ? nil : config.language
                 resetTypingState()
 
@@ -124,6 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             startLevelFeed()
         } catch {
             overlay.showError()
+            pendingRecordingStart = false
             NSLog("[Rec] %@", error.localizedDescription)
         }
     }
@@ -193,6 +333,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let audioURL = recorder.stop()
         statusBar.setRecording(false)
 
+        let wasBuffering = pendingRecordingStart
+        pendingRecordingStart = false
+        drainBufferAndCleanup()
+
         if isStreaming {
             overlay.showProcessing()
             sessionGeneration += 1
@@ -201,6 +345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let audioURL else {
                 resetTypingState()
                 overlay.hide()
+                resetIdleTimer()
                 return
             }
 
@@ -221,6 +366,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.overlay.showError()
                 }
                 try? FileManager.default.removeItem(at: audioURL)
+                self.resetIdleTimer()
+            }
+        } else if wasBuffering || asr.state != .ready {
+            if let audioURL {
+                overlay.showProcessing()
+                pendingTranscription = audioURL
+            } else {
+                overlay.hide()
+                resetIdleTimer()
             }
         } else if let audioURL {
             overlay.showProcessing()
@@ -247,9 +401,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.overlay.showError()
                 }
                 try? FileManager.default.removeItem(at: audioURL)
+                self.resetIdleTimer()
             }
         } else {
             overlay.hide()
+            resetIdleTimer()
         }
     }
 
