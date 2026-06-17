@@ -2,10 +2,10 @@ import AppKit
 import Foundation
 
 struct AppConfig: Codable {
-    var model: String = "mlx-community/Qwen3-ASR-0.6B-8bit"
+    var model: String = "mlx-community/Qwen3-ASR-1.7B-bf16"
     var hotkeyKeyCode: Int = 0x36        // Right Command
     var hotkeyModifiers: Int = 0
-    var hotkeyMode: String = "hold"      // "toggle" or "hold"
+    var hotkeyMode: String = "toggle"     // "toggle" or "hold"
     var hotkeyIsMediaKey: Bool = false
     var language: String = ""            // empty = auto-detect
     var copyToClipboard: Bool = false
