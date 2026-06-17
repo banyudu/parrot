@@ -628,7 +628,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func wrapInVoiceTag(_ text: String, raw: String? = nil) -> String {
         guard config.voiceTagEnabled else { return text }
-        if let raw {
+        if let raw, raw != text {
             let escaped = raw
                 .replacingOccurrences(of: "&", with: "&amp;")
                 .replacingOccurrences(of: "\"", with: "&quot;")
