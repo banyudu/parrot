@@ -183,12 +183,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         guard self.sessionGeneration == gen else { return }
                         self.focusTracker.restore()
                         self.overlay.showDone()
-                        PasteService.paste(polished, copyToClipboard: self.config.copyToClipboard)
+                        let output = self.wrapInVoiceTag(polished, raw: trimmed)
+                        PasteService.paste(output, copyToClipboard: self.config.copyToClipboard)
                     }
                 } else {
                     self.focusTracker.restore()
                     self.overlay.showDone()
-                    PasteService.paste(trimmed, copyToClipboard: self.config.copyToClipboard)
+                    let output = self.wrapInVoiceTag(trimmed)
+                    PasteService.paste(output, copyToClipboard: self.config.copyToClipboard)
                 }
             case .failure:
                 self.overlay.showError()
@@ -405,12 +407,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             guard self.sessionGeneration == gen else { return }
                             self.focusTracker.restore()
                             self.overlay.showDone()
-                            PasteService.paste(polished, copyToClipboard: self.config.copyToClipboard)
+                            let output = self.wrapInVoiceTag(polished, raw: trimmed)
+                            PasteService.paste(output, copyToClipboard: self.config.copyToClipboard)
                         }
                     } else {
                         self.focusTracker.restore()
                         self.overlay.showDone()
-                        PasteService.paste(trimmed, copyToClipboard: self.config.copyToClipboard)
+                        let output = self.wrapInVoiceTag(trimmed)
+                        PasteService.paste(output, copyToClipboard: self.config.copyToClipboard)
                     }
                 case .failure:
                     self.overlay.showError()
@@ -446,31 +450,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard let self, self.sessionGeneration == gen else { return }
                     self.focusTracker.restore()
                     self.overlay.showDone()
-                    PasteService.paste(polished, copyToClipboard: self.config.copyToClipboard)
+                    let output = self.wrapInVoiceTag(polished, raw: trimmed)
+                    PasteService.paste(output, copyToClipboard: self.config.copyToClipboard)
                     self.resetTypingState()
                 }
             } else {
                 focusTracker.restore()
                 overlay.showDone()
-                PasteService.paste(trimmed, copyToClipboard: self.config.copyToClipboard)
+                let output = wrapInVoiceTag(trimmed)
+                PasteService.paste(output, copyToClipboard: self.config.copyToClipboard)
                 resetTypingState()
             }
             return
         }
 
-        PasteService.replaceText(from: displayedText, to: trimmed)
-        displayedText = trimmed
-
         if config.polishEnabled && polisher.state == .ready {
+            PasteService.replaceText(from: displayedText, to: trimmed)
+            displayedText = trimmed
             polisher.polish(trimmed, language: lang) { [weak self] polished in
                 guard let self, self.sessionGeneration == gen else { return }
                 self.focusTracker.restore()
-                PasteService.replaceText(from: self.displayedText, to: polished)
-                self.displayedText = polished
+                let output = self.wrapInVoiceTag(polished, raw: trimmed)
+                PasteService.replaceText(from: self.displayedText, to: output)
+                self.displayedText = output
                 self.resetTypingState()
                 self.overlay.showDone()
             }
         } else {
+            let output = wrapInVoiceTag(trimmed)
+            PasteService.replaceText(from: displayedText, to: output)
+            displayedText = output
             resetTypingState()
             overlay.showDone()
         }
@@ -607,6 +616,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkey.unregister()
         bindHotkey()
         statusBar.rebuildMenu()
+    }
+
+    // MARK: - Voice tag
+
+    func toggleVoiceTag() {
+        config.voiceTagEnabled.toggle()
+        config.save()
+        statusBar.rebuildMenu()
+    }
+
+    private func wrapInVoiceTag(_ text: String, raw: String? = nil) -> String {
+        guard config.voiceTagEnabled else { return text }
+        if let raw {
+            let escaped = raw
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "\"", with: "&quot;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+            return "<voice raw=\"\(escaped)\">\(text)</voice>"
+        }
+        return "<voice>\(text)</voice>"
     }
 
     // MARK: - Accessors

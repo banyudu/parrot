@@ -18,6 +18,9 @@ struct AppConfig: Codable {
     var streamingEnabled: Bool = true
     var idleOffloadMinutes: Int = 5
 
+    // Output format
+    var voiceTagEnabled: Bool = false
+
     static let defaultUseHFMirror: Bool = {
         let region = Locale.current.region?.identifier ?? ""
         return ["CN"].contains(region)

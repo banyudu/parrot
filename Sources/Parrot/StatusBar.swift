@@ -68,6 +68,15 @@ final class StatusBarController {
         streamItem.target = self
         menu.addItem(streamItem)
 
+        // Voice tag toggle
+        let voiceTagItem = NSMenuItem(
+            title: delegate.currentConfig.voiceTagEnabled ? "Voice Tag: On" : "Voice Tag: Off",
+            action: #selector(onToggleVoiceTag),
+            keyEquivalent: ""
+        )
+        voiceTagItem.target = self
+        menu.addItem(voiceTagItem)
+
         // Language submenu
         let langMenu = NSMenu()
         let currentLang = delegate.currentConfig.language
@@ -129,6 +138,7 @@ final class StatusBarController {
     @objc private func onTogglePolish() { delegate?.togglePolish() }
     @objc private func onToggleHotkeyMode() { delegate?.toggleHotkeyMode() }
     @objc private func onToggleStreaming() { delegate?.toggleStreaming() }
+    @objc private func onToggleVoiceTag() { delegate?.toggleVoiceTag() }
     @objc private func onSelectLanguage(_ sender: NSMenuItem) {
         guard let lang = sender.representedObject as? String else { return }
         delegate?.selectLanguage(lang)
