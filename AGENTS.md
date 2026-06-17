@@ -23,7 +23,7 @@ Requires macOS 14+, Apple Silicon, Xcode 26.3+, Swift 6.2. Uses Swift 5 language
 
 Metal shaders from `mlx-swift` are compiled separately by the Makefile into `.build/mlx.metallib` and copied into `Contents/MacOS/`. The `metallib` target is incremental — only rebuilds when `.metal` sources are newer.
 
-Signing identity defaults to `Developer ID Application: Yudu Ban (RYLS8UDY5D)`. Override with `SIGN_IDENTITY=-` for ad-hoc. Ad-hoc signing changes the code hash on every build, which resets macOS Accessibility permission.
+Signing identity defaults to `Developer ID Application: Yudu Ban (RYLS8UDY5D)`. Override with `SIGN_IDENTITY=-` for ad-hoc. Ad-hoc signing changes the code hash on every build, which resets macOS Accessibility permission. **Always use the default Developer ID signing (no `SIGN_IDENTITY=-`) when building for the repo owner** to preserve Accessibility permission across rebuilds.
 
 ## Architecture Overview
 
